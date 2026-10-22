@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: commerce
+          POSTGRES_PASSWORD: commerce
+          POSTGRES_DB: commerce
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U commerce -d commerce"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://commerce:commerce@127.0.0.1:5435/commerce
+      PORT: 3401
+      WEBHOOK_SECRET: whsec_local_simulator_only
+      FILE_SIGNING_SECRET: local_file_signing_secret_xx
+      DOWNLOAD_URL_TTL_SECONDS: 120
+      STRIPE_MODE: simulator
+      VESPER_ORIGIN: http://127.0.0.1:3402
+      COUNSEL_ORIGIN: http://127.0.0.1:3403
+      PUBLIC_BASE_URL: http://127.0.0.1:3401
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm e2e
