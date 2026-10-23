@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { localizedName, serviceBySlug, type CounselService } from "@vesper-counsel/catalog";
 import { DemoPaymentNotice, fill, useLocale } from "@vesper-counsel/shell";
+import { appPath } from "../lib/app-path";
 import {
   CommerceError,
   createSession,
@@ -69,7 +70,7 @@ function CheckoutBody({
     return (
       <div className="notice">
         <p>{t.chooseTime}</p>
-        <a href="/">{t.backToServices}</a>
+        <a href={appPath("/")}>{t.backToServices}</a>
       </div>
     );
   }
@@ -78,7 +79,7 @@ function CheckoutBody({
     return (
       <div role="alert">
         <p>{t.unknownService}</p>
-        <a href="/">{t.backToServices}</a>
+        <a href={appPath("/")}>{t.backToServices}</a>
       </div>
     );
   }

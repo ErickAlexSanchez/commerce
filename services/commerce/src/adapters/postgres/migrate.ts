@@ -4,6 +4,18 @@ import pg from "pg";
 
 const migrationLock = 840401;
 
+function migrationDirectory(): string {
+  const fromSource = path.join(__dirname, "../../../migrations");
+  if (fs.existsSync(fromSource)) {
+    return fromSource;
+  }
+  const fromCwd = path.join(process.cwd(), "migrations");
+  if (fs.existsSync(fromCwd)) {
+    return fromCwd;
+  }
+  return fromSource;
+}
+
 export async function migrate(pool: pg.Pool): Promise<void> {
   const client = await pool.connect();
   try {
@@ -14,7 +26,7 @@ export async function migrate(pool: pg.Pool): Promise<void> {
         applied_at timestamptz NOT NULL DEFAULT now()
       )
     `);
-    const directory = path.join(__dirname, "../../../migrations");
+    const directory = migrationDirectory();
     const files = fs
       .readdirSync(directory)
       .filter((file) => file.endsWith(".sql"))

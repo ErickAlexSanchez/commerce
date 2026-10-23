@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { fill, useLocale } from "@vesper-counsel/shell";
+import { appPath } from "../lib/app-path";
 import { fetchSlots, formatSlot } from "../lib/api";
 
 export function AvailabilityTable({
@@ -53,7 +54,7 @@ export function AvailabilityTable({
             <td>{formatSlot(slot.startsAt, locale)}</td>
             <td>{formatSlot(slot.endsAt, locale)}</td>
             <td>
-              <a href={`/checkout?service=${serviceSlug}&slot=${slot.id}&version=${slot.version}`}>
+              <a href={appPath(`/checkout?service=${serviceSlug}&slot=${slot.id}&version=${slot.version}`)}>
                 {fill(t.hold, { time: formatSlot(slot.startsAt, locale) })}
               </a>
             </td>

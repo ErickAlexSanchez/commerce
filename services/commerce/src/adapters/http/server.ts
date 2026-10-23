@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
@@ -101,7 +102,19 @@ const paymentSettingsSchema = z.object({
   secretKey: z.string().max(200).refine(hasNoControlChars, "secretKey has control characters").optional(),
 });
 
-const mediaRoot = path.resolve(__dirname, "../../../assets");
+function resolveMediaRoot(): string {
+  const fromSource = path.resolve(__dirname, "../../../assets");
+  if (existsSync(fromSource)) {
+    return fromSource;
+  }
+  const fromCwd = path.resolve(process.cwd(), "assets");
+  if (existsSync(fromCwd)) {
+    return fromCwd;
+  }
+  return fromSource;
+}
+
+const mediaRoot = resolveMediaRoot();
 
 const mediaFiles = new Set([
   "vesper/aster-signet.jpg",

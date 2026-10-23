@@ -8,6 +8,7 @@ import {
   localizedName,
 } from "@vesper-counsel/catalog";
 import { fill, useLocale } from "@vesper-counsel/shell";
+import { appPath } from "../lib/app-path";
 import { fetchListings, formatUsd } from "../lib/api";
 
 export function CounselCatalog({ apiBase }: { apiBase: string }) {
@@ -33,7 +34,7 @@ export function CounselCatalog({ apiBase }: { apiBase: string }) {
           const price = live?.priceCents ?? service.priceCents;
           return (
             <li key={service.sku}>
-              <a href={`/services/${service.slug}`}>
+              <a href={appPath(`/services/${service.slug}`)}>
                 <img
                   className="product-image"
                   src={catalogImageSrc(apiBase, "counsel", service.slug, live?.imageUpdatedAt)}

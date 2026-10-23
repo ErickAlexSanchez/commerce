@@ -4,6 +4,21 @@ This is a portfolio version of a production system I built for a company whose c
 
 One commerce service serves two storefronts. Vesper is a fictional jewelry studio. Counsel is a fictional studio for reading a letter, an agreement, or formation papers. Counsel is not a law firm, and nothing here is legal advice. One admin edits both brands.
 
+## Live
+
+The public demo is the URL Vercel assigns when this repository is imported and deployed. This repository does not record a production hostname. Import the GitHub repository as one Vercel project. The root `vercel.json` uses Vercel Services, which are in beta. On that deployment:
+
+| Service | Path on the Vercel URL |
+| --- | --- |
+| Vesper | `/` |
+| Counsel | `/counsel` |
+| Admin | `/admin` |
+| Commerce API | `/commerce` |
+
+Checkout stays the labeled demo simulator. Stripe is not activated. No payment secret is stored in this repository.
+
+Postgres stays on this machine. Docker Compose publishes it on port 5435. The commerce service reads `DATABASE_URL` and the other names in `.env.example` from the Vercel project environment. Those values are not committed. Without `DATABASE_URL`, the storefronts still build from `packages/catalog`, and checkout cannot write an order.
+
 ## Decision
 
 The catalog pages are static. Piece and service routes are generated from `packages/catalog`, which has no framework. Checkout is a dynamic island: the checkout pages are `force-dynamic`, and the form is a client component. An order is written only from the signed webhook. That write is idempotent on `orders.stripe_event_id`, so a repeated event does not create a second order. Inventory updates are conditional on the `version` column, so two shoppers who read the same snapshot cannot both buy that unit. Jewelry certificates are short-lived signed URLs. Counsel has its own `availability_slots` table, because a time is not a stock quantity. A hold lasts 15 minutes and is confirmed in the same database transaction as the order.
@@ -57,7 +72,9 @@ e2e/
 
 Domain and application code do not import React, Next.js, the Postgres driver, or adapters. The HTTP process reads environment variables with Zod and refuses to start when they are incomplete. `src/composition/create-app.ts` is the place that wires the HTTP adapters. Migrate and seed open their own database connections.
 
-## Run
+## Local
+
+These addresses are local to this machine. They are not the public demo.
 
 Requires Node.js 22, pnpm 10.18.3, and Docker. From PowerShell, in this folder:
 
@@ -87,7 +104,7 @@ The header `?` control explains the demo. English and Spanish follow the `locale
 
 ## Test
 
-Postgres must be running on port 5435. `pnpm test` creates the `commerce_test` database on that server when it is missing, and the integration tests use that database. `pnpm e2e` migrates and seeds the `commerce` database. Playwright uses `DATABASE_URL` when it is set, and otherwise `postgres://commerce:commerce@127.0.0.1:5435/commerce`.
+Postgres must be running on port 5435, the same local database as the Local section. `pnpm test` creates the `commerce_test` database on that server when it is missing, and the integration tests use that database. `pnpm e2e` migrates and seeds the `commerce` database. Playwright uses `DATABASE_URL` when it is set, and otherwise the local Compose database from the Local section.
 
 ```powershell
 pnpm typecheck

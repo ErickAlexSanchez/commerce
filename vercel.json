@@ -1,0 +1,43 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "vesper": {
+      "root": "apps/vesper",
+      "framework": "nextjs",
+      "installCommand": "pnpm install --frozen-lockfile --filter @vesper-counsel/vesper..."
+    },
+    "counsel": {
+      "root": "apps/counsel",
+      "framework": "nextjs",
+      "installCommand": "pnpm install --frozen-lockfile --filter @vesper-counsel/counsel..."
+    },
+    "admin": {
+      "root": "apps/admin",
+      "framework": "nextjs",
+      "installCommand": "pnpm install --frozen-lockfile --filter @vesper-counsel/admin..."
+    },
+    "commerce": {
+      "root": "services/commerce",
+      "framework": "node",
+      "entrypoint": "src/server.ts",
+      "installCommand": "pnpm install --frozen-lockfile --filter @vesper-counsel/commerce...",
+      "functions": {
+        "src/server.ts": {
+          "includeFiles": "{assets,migrations}/**"
+        }
+      },
+      "rewrites": [
+        { "source": "/commerce/:path(.*)?", "destination": "/:path" }
+      ]
+    }
+  },
+  "rewrites": [
+    { "source": "/commerce", "destination": { "service": "commerce" } },
+    { "source": "/commerce/(.*)", "destination": { "service": "commerce" } },
+    { "source": "/counsel", "destination": { "service": "counsel" } },
+    { "source": "/counsel/(.*)", "destination": { "service": "counsel" } },
+    { "source": "/admin", "destination": { "service": "admin" } },
+    { "source": "/admin/(.*)", "destination": { "service": "admin" } },
+    { "source": "/(.*)", "destination": { "service": "vesper" } }
+  ]
+}
