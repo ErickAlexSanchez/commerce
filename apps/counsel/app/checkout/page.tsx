@@ -1,4 +1,4 @@
-import { CheckoutIsland } from "../../components/checkout-island";
+import { CheckoutHeading, CheckoutIsland } from "../../components/checkout-island";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export default async function CheckoutPage({
   const slotVersion = version !== null && Number.isInteger(version) && version >= 0 ? version : null;
   return (
     <main id="content">
-      <h1>Checkout</h1>
+      <CheckoutHeading />
       <CheckoutIsland
         serviceSlug={params.service ?? null}
         slotId={params.slot ?? null}

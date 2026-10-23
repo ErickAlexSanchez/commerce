@@ -38,4 +38,20 @@ describe("module boundaries", () => {
     expect(source).not.toContain("sk_live");
     expect(source).not.toContain("sk_test");
   });
+
+  test("commerce source does not call Stripe or outbound fetch", () => {
+    const files = [...sourceFiles(path.join(root, "adapters")), ...sourceFiles(path.join(root, "application"))];
+    const offenders = files.filter((file) => {
+      const source = fs.readFileSync(file, "utf8");
+      return source.includes("api.stripe.com") || source.includes("fetch(") || source.includes("https.request");
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  test("checkout does not read inactive payment settings", () => {
+    const source = fs.readFileSync(path.join(root, "application/create-checkout-session.ts"), "utf8");
+    expect(source).not.toContain("payment_settings");
+    expect(source).not.toContain("savePaymentSettings");
+    expect(source).not.toContain("api.stripe.com");
+  });
 });

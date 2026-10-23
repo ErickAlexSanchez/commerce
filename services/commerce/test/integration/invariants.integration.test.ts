@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
+import { demoAdminEmail, demoAdminPassword } from "@vesper-counsel/catalog";
 import { signStripeHeader, StripeSimulatorGateway } from "../../src/adapters/stripe/stripe-simulator-gateway";
+import { seed } from "../../src/scripts/seed";
 import { createApp, type AppHandle } from "../../src/composition/create-app";
 import { loadEnv } from "../../src/composition/env";
 import type { Clock } from "../../src/ports/clock";
@@ -68,6 +70,7 @@ describe("postgres invariants", () => {
     await admin.query(
       "TRUNCATE order_lines, orders, checkout_sessions, availability_slots, inventory_items RESTART IDENTITY CASCADE",
     );
+    await admin.query("DELETE FROM catalog_listings");
   });
 
   async function orderCount(eventId?: string): Promise<number> {
@@ -271,13 +274,135 @@ describe("postgres invariants", () => {
     expect(expired.status).toBe(410);
   });
 
+  test("an admin edit is stored in Postgres and does not connect Stripe", async () => {
+    await seed(admin);
+    const login = await postJson("/admin/login", { email: demoAdminEmail, password: demoAdminPassword });
+    expect(login.response.status).toBe(200);
+    if (!isRecord(login.body) || typeof login.body.token !== "string") {
+      throw new Error("Admin login did not return a token");
+    }
+    const token = login.body.token;
+    const secret = "sk_demo_secret_value_not_live_9911";
+    const saved = await sendJson("PUT", "/admin/payment-settings", {
+      publishableKey: "pk_demo_publishable_value",
+      secretKey: secret,
+    }, token);
+    expect(saved.response.status).toBe(200);
+    const savedText = JSON.stringify(saved.body);
+    expect(savedText).not.toContain(secret);
+    expect(savedText).not.toContain("api.stripe.com");
+    expect(isRecord(saved.body) && saved.body.connected).toBe(false);
+    expect(isRecord(saved.body) && saved.body.paymentsProcessed).toBe(false);
+    const settingsRow = await admin.query<{ connected: boolean }>(
+      "SELECT connected FROM inactive_payment_settings",
+    );
+    expect(settingsRow.rows[0]?.connected).toBe(false);
+
+    const patched = await sendJson(
+      "PATCH",
+      "/admin/listings/VSP-ASTER-SIGNET",
+      { name: "Renamed Signet", priceCents: 47000 },
+      token,
+    );
+    expect(patched.response.status).toBe(200);
+    const live = await fetch(`${baseUrl}/listings/vesper`);
+    expect(live.status).toBe(200);
+    expect(live.headers.get("cache-control")).toBe("private, no-store");
+    const liveText = JSON.stringify(await live.json());
+    expect(liveText).toContain("Renamed Signet");
+    expect(liveText).toContain("47000");
+
+    const created = await postJson("/checkout/sessions", {
+      brand: "vesper",
+      email: "ada@example.com",
+      lines: [{ sku: "VSP-ASTER-SIGNET", quantity: 1 }],
+    });
+    expect(created.response.status).toBe(201);
+    expect(isRecord(created.body) && created.body.totalCents).toBe(47000);
+    const paid = await simulate(created.body);
+    expect(paid.status).toBe(200);
+
+    const orders = await fetch(`${baseUrl}/admin/orders`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(orders.status).toBe(200);
+    expect(JSON.stringify(await orders.json())).toContain("Renamed Signet");
+  });
+
+  test("an admin photo is stored in Postgres and served on the catalog image path", async () => {
+    await seed(admin);
+    const login = await postJson("/admin/login", { email: demoAdminEmail, password: demoAdminPassword });
+    expect(login.response.status).toBe(200);
+    if (!isRecord(login.body) || typeof login.body.token !== "string") {
+      throw new Error("Admin login did not return a token");
+    }
+    const token = login.body.token;
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const rejected = await sendJson(
+      "PATCH",
+      "/admin/listings/VSP-ASTER-SIGNET",
+      {
+        name: "Aster Signet",
+        priceCents: 46000,
+        image: { contentType: "image/png", dataBase64: Buffer.from("not a png").toString("base64") },
+      },
+      token,
+    );
+    expect(rejected.response.status).toBe(400);
+
+    const patched = await sendJson(
+      "PATCH",
+      "/admin/listings/VSP-ASTER-SIGNET",
+      {
+        name: "Aster Signet",
+        priceCents: 46100,
+        image: { contentType: "image/png", dataBase64: png },
+      },
+      token,
+    );
+    expect(patched.response.status).toBe(200);
+    const row = await admin.query<{ image_content_type: string; price_cents: number }>(
+      "SELECT image_content_type, price_cents FROM catalog_listings WHERE sku = $1",
+      ["VSP-ASTER-SIGNET"],
+    );
+    expect(row.rows[0]?.image_content_type).toBe("image/png");
+    expect(Number(row.rows[0]?.price_cents)).toBe(46100);
+    const media = await fetch(`${baseUrl}/media/vesper/aster-signet.jpg`);
+    expect(media.status).toBe(200);
+    expect(media.headers.get("cache-control")).toBe("private, no-store");
+    expect(media.headers.get("content-type")).toBe("image/png");
+    const bytes = Buffer.from(await media.arrayBuffer());
+    expect(bytes.equals(Buffer.from(png, "base64"))).toBe(true);
+    const live = await fetch(`${baseUrl}/listings/vesper`);
+    const liveText = JSON.stringify(await live.json());
+    expect(liveText).toContain("46100");
+    expect(liveText).toContain("imageUpdatedAt");
+  });
+
   test("catalog responses are public and checkout responses are not stored", async () => {
     const catalog = await fetch(`${baseUrl}/catalog/vesper`);
     expect(catalog.status).toBe(200);
     expect(catalog.headers.get("cache-control")).toBe("public, max-age=300, s-maxage=3600");
+    const media = await fetch(`${baseUrl}/media/vesper/aster-signet.jpg`);
+    expect(media.status).toBe(200);
+    expect(media.headers.get("content-type")).toBe("image/jpeg");
+    expect(media.headers.get("cache-control")).toBe("public, max-age=300, s-maxage=3600");
+    await media.arrayBuffer();
+    const listings = await fetch(`${baseUrl}/listings/vesper`);
+    expect(listings.status).toBe(200);
+    expect(listings.headers.get("cache-control")).toBe("private, no-store");
     const health = await fetch(`${baseUrl}/health`);
     expect(health.status).toBe(200);
     expect(health.headers.get("cache-control")).toBe("private, no-store");
+    await seedPiece(1, 0);
+    const created = await postJson("/checkout/sessions", {
+      brand: "vesper",
+      email: "ada@example.com",
+      lines: [{ sku: "VSP-ASTER-SIGNET", quantity: 1 }],
+    });
+    expect(created.response.status).toBe(201);
+    expect(created.response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   test("two buyers cannot hold the same counsel time", async () => {
@@ -311,12 +436,21 @@ describe("postgres invariants", () => {
   });
 
   async function postJson(path: string, body: unknown, token?: string): Promise<{ response: Response; body: unknown }> {
+    return sendJson("POST", path, body, token);
+  }
+
+  async function sendJson(
+    method: "POST" | "PATCH" | "PUT",
+    path: string,
+    body: unknown,
+    token?: string,
+  ): Promise<{ response: Response; body: unknown }> {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (token) {
       headers.authorization = `Bearer ${token}`;
     }
     const response = await fetch(`${baseUrl}${path}`, {
-      method: "POST",
+      method,
       headers,
       body: JSON.stringify(body),
     });

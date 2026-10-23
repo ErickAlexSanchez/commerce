@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { fill, useLocale } from "@vesper-counsel/shell";
 import { fetchSlots, formatSlot } from "../lib/api";
 
 export function AvailabilityTable({
@@ -12,51 +13,54 @@ export function AvailabilityTable({
   serviceName: string;
   apiBase: string;
 }) {
+  const { locale, t } = useLocale();
   const query = useQuery({
     queryKey: ["slots", serviceSlug, apiBase],
     queryFn: () => fetchSlots(apiBase, serviceSlug),
   });
 
   if (query.isPending) {
-    return <p role="status">Loading available times</p>;
+    return <p role="status">{t.loadingTimes}</p>;
   }
   if (query.isError) {
     return (
       <div role="alert">
-        <p>Available times could not be loaded.</p>
+        <p>{t.timesError}</p>
         <button type="button" onClick={() => void query.refetch()}>
-          Try again
+          {t.tryAgain}
         </button>
       </div>
     );
   }
   if (query.data.length === 0) {
-    return <p>No open times remain for this service.</p>;
+    return <p>{t.noOpenTimes}</p>;
   }
 
   return (
+    <div className="table-scroll">
     <table>
-      <caption>Open times for {serviceName}</caption>
+      <caption>{fill(t.openTimesFor, { name: serviceName })}</caption>
       <thead>
         <tr>
-          <th scope="col">Starts</th>
-          <th scope="col">Ends</th>
-          <th scope="col">Hold</th>
+          <th scope="col">{t.starts}</th>
+          <th scope="col">{t.ends}</th>
+          <th scope="col">{locale === "es" ? "Apartar" : "Hold"}</th>
         </tr>
       </thead>
       <tbody>
         {query.data.map((slot) => (
           <tr key={slot.id}>
-            <td>{formatSlot(slot.startsAt)}</td>
-            <td>{formatSlot(slot.endsAt)}</td>
+            <td>{formatSlot(slot.startsAt, locale)}</td>
+            <td>{formatSlot(slot.endsAt, locale)}</td>
             <td>
               <a href={`/checkout?service=${serviceSlug}&slot=${slot.id}&version=${slot.version}`}>
-                Hold {formatSlot(slot.startsAt)}
+                {fill(t.hold, { time: formatSlot(slot.startsAt, locale) })}
               </a>
             </td>
           </tr>
         ))}
       </tbody>
     </table>
+    </div>
   );
 }

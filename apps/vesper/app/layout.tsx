@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import Script from "next/script";
 import { Fraunces, Outfit } from "next/font/google";
+import { DemoFrame, DemoProvider, preferenceBootScript } from "@vesper-counsel/shell";
 import { QueryProvider } from "../components/query-provider";
 import "./globals.css";
 
@@ -14,23 +16,14 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${display.variable} ${sans.variable}`}>
       <body>
-        <a className="skip-link" href="#content">
-          Skip to content
-        </a>
-        <header className="site-header">
-          <a className="wordmark" href="/">
-            Vesper
-          </a>
-          <nav aria-label="Primary">
-            <a href="/">Catalog</a>
-          </nav>
-        </header>
-        <QueryProvider>{children}</QueryProvider>
-        <footer className="site-footer">
-          <p>Vesper is a fictional studio. Checkout uses a signed test payment and does not charge a card.</p>
-        </footer>
+        <Script id="demo-preferences" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: preferenceBootScript }} />
+        <DemoProvider>
+          <QueryProvider>
+            <DemoFrame brand="vesper">{children}</DemoFrame>
+          </QueryProvider>
+        </DemoProvider>
       </body>
     </html>
   );

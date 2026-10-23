@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
 import http from "node:http";
+import path from "node:path";
 import { ZodError, z } from "zod";
 import {
   counselServices,
@@ -8,11 +10,21 @@ import {
   vesperPieces,
 } from "@vesper-counsel/catalog";
 import { cacheControlFor, type CacheRoute } from "../../domain/cache-policy";
+import { decodeListingImage } from "../../domain/listing-image";
 import { AppError, isAppError, type ErrorCode } from "../../domain/errors";
+import {
+  changeListing,
+  listPaidOrders,
+  loginAdmin,
+  readInactivePaymentSettings,
+  saveInactivePaymentSettings,
+} from "../../application/admin";
+import { hashAccessToken } from "../../application/access-tokens";
 import { createCheckoutSession, getCheckoutSession } from "../../application/create-checkout-session";
 import { issueDownload, resolveDownload } from "../../application/downloads";
 import { fulfillPayment } from "../../application/fulfill-payment";
 import { listOpenSlots } from "../../application/list-slots";
+import { publicListings } from "../../application/listings";
 import { logError, logInfo } from "../log/logger";
 import type { Clock } from "../../ports/clock";
 import type { CommerceStore } from "../../ports/commerce-store";
@@ -64,6 +76,59 @@ const simulateSchema = z.object({
   sessionId: z.string().uuid(),
 });
 
+const loginSchema = z.object({
+  email: z.string().email().max(320),
+  password: z.string().min(1).max(200),
+});
+
+const listingPatchSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  priceCents: z.number().int().nonnegative().max(10_000_000),
+  image: z
+    .object({
+      contentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+      dataBase64: z.string().min(1).max(3_500_000),
+    })
+    .optional(),
+});
+
+function hasNoControlChars(value: string): boolean {
+  return !/[\u0000-\u001F\u007F]/.test(value);
+}
+
+const paymentSettingsSchema = z.object({
+  publishableKey: z.string().max(200).refine(hasNoControlChars, "publishableKey has control characters"),
+  secretKey: z.string().max(200).refine(hasNoControlChars, "secretKey has control characters").optional(),
+});
+
+const mediaRoot = path.resolve(__dirname, "../../../assets");
+
+const mediaFiles = new Set([
+  "vesper/aster-signet.jpg",
+  "vesper/keel-chain.jpg",
+  "vesper/pebble-studs.jpg",
+  "vesper/bramble-cuff.jpg",
+  "counsel/letter-review.jpg",
+  "counsel/agreement-read.jpg",
+  "counsel/formation-consult.jpg",
+]);
+
+function catalogImageFile(brand: string, file: string): string | null {
+  if (!/^[a-z0-9-]+\.jpg$/.test(file)) {
+    return null;
+  }
+  const key = `${brand}/${file}`;
+  if (!mediaFiles.has(key)) {
+    return null;
+  }
+  const full = path.resolve(mediaRoot, brand, file);
+  const rootWithSep = mediaRoot.endsWith(path.sep) ? mediaRoot : `${mediaRoot}${path.sep}`;
+  if (!full.startsWith(rootWithSep)) {
+    return null;
+  }
+  return full;
+}
+
 export type AppDeps = {
   env: {
     STRIPE_MODE: "simulator";
@@ -79,13 +144,13 @@ export type AppDeps = {
 type HttpResult = {
   status: number;
   cache: CacheRoute;
-  body: string;
+  body: string | Buffer;
   contentType: string;
   extraHeaders?: Record<string, string>;
 };
 
 type Route = {
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PATCH" | "PUT";
   match: RegExp;
   cache: CacheRoute;
   label: string;
@@ -119,6 +184,18 @@ function bearer(header: string | undefined): string | undefined {
   }
   const match = /^Bearer ([A-Za-z0-9_-]+)$/.exec(header);
   return match?.[1];
+}
+
+async function requireAdmin(deps: AppDeps, request: Incoming): Promise<{ id: string; email: string }> {
+  const token = bearer(request.header("authorization"));
+  if (!token) {
+    throw new AppError("unauthorized", "Authentication is required.");
+  }
+  const principal = await deps.store.readAdminSession(hashAccessToken(token), deps.clock.now());
+  if (!principal) {
+    throw new AppError("unauthorized", "Authentication is required.");
+  }
+  return principal;
 }
 
 function validationMessage(error: ZodError): string {
@@ -382,6 +459,152 @@ function routesFor(deps: AppDeps): Route[] {
     },
   ];
 
+  routes.push(
+    {
+      method: "GET",
+      match: /^\/listings\/(vesper|counsel)$/,
+      cache: "listing",
+      label: "GET /listings/:brand",
+      handler: async (context, groups) => {
+        const brand = groups[0];
+        if (brand !== "vesper" && brand !== "counsel") {
+          throw new AppError("not_found", "Catalog was not found.");
+        }
+        const items = await publicListings(context.store, brand);
+        return json(200, "listing", { brand, items });
+      },
+    },
+    {
+      method: "GET",
+      match: /^\/media\/(vesper|counsel)\/([a-z0-9-]+\.jpg)$/,
+      cache: "media",
+      label: "GET /media/:brand/:file",
+      handler: async (context, groups) => {
+        const brand = groups[0];
+        const file = groups[1];
+        if ((brand === "vesper" || brand === "counsel") && file) {
+          const slug = file.replace(/\.jpg$/, "");
+          const item = brand === "vesper" ? pieceBySlug(slug) : serviceBySlug(slug);
+          if (item) {
+            const stored = await context.store.readListingImage(item.sku);
+            if (stored) {
+              return {
+                status: 200,
+                cache: "stored_media" as const,
+                contentType: stored.contentType,
+                body: stored.bytes,
+              };
+            }
+          }
+        }
+        const full = brand && file ? catalogImageFile(brand, file) : null;
+        if (!full) {
+          throw new AppError("not_found", "Image was not found.");
+        }
+        try {
+          const bytes = await fs.readFile(full);
+          return {
+            status: 200,
+            cache: "media" as const,
+            contentType: "image/jpeg",
+            body: bytes,
+          };
+        } catch (error) {
+          const code = error instanceof Error && "code" in error ? error.code : undefined;
+          if (code === "ENOENT") {
+            throw new AppError("not_found", "Image was not found.");
+          }
+          throw error;
+        }
+      },
+    },
+    {
+      method: "POST",
+      match: /^\/admin\/login$/,
+      cache: "admin",
+      label: "POST /admin/login",
+      handler: async (context, _groups, request) => {
+        const body = loginSchema.parse(requireJson(request.header("content-type"), request.rawBody));
+        const session = await loginAdmin(context.store, context.clock, body);
+        return json(200, "admin", session);
+      },
+    },
+    {
+      method: "GET",
+      match: /^\/admin\/listings$/,
+      cache: "admin",
+      label: "GET /admin/listings",
+      handler: async (context, _groups, request) => {
+        await requireAdmin(context, request);
+        const [vesper, counsel] = await Promise.all([
+          publicListings(context.store, "vesper"),
+          publicListings(context.store, "counsel"),
+        ]);
+        return json(200, "admin", { vesper, counsel });
+      },
+    },
+    {
+      method: "PATCH",
+      match: /^\/admin\/listings\/([A-Za-z0-9-]+)$/,
+      cache: "admin",
+      label: "PATCH /admin/listings/:sku",
+      handler: async (context, groups, request) => {
+        await requireAdmin(context, request);
+        const sku = groups[0];
+        if (!sku) {
+          throw new AppError("not_found", "Catalog item was not found.");
+        }
+        const body = listingPatchSchema.parse(requireJson(request.header("content-type"), request.rawBody));
+        const image = body.image ? decodeListingImage(body.image.contentType, body.image.dataBase64) : undefined;
+        const listing = await changeListing(context.store, {
+          sku,
+          name: body.name,
+          priceCents: body.priceCents,
+          image,
+        });
+        return json(200, "admin", listing);
+      },
+    },
+    {
+      method: "GET",
+      match: /^\/admin\/orders$/,
+      cache: "admin",
+      label: "GET /admin/orders",
+      handler: async (context, _groups, request) => {
+        await requireAdmin(context, request);
+        const orders = await listPaidOrders(context.store);
+        return json(200, "admin", { orders });
+      },
+    },
+    {
+      method: "GET",
+      match: /^\/admin\/payment-settings$/,
+      cache: "admin",
+      label: "GET /admin/payment-settings",
+      handler: async (context, _groups, request) => {
+        await requireAdmin(context, request);
+        const settings = await readInactivePaymentSettings(context.store);
+        return json(200, "admin", settings);
+      },
+    },
+    {
+      method: "PUT",
+      match: /^\/admin\/payment-settings$/,
+      cache: "admin",
+      label: "PUT /admin/payment-settings",
+      handler: async (context, _groups, request) => {
+        await requireAdmin(context, request);
+        const body = paymentSettingsSchema.parse(requireJson(request.header("content-type"), request.rawBody));
+        const secretKey = body.secretKey === undefined || body.secretKey.trim() === "" ? null : body.secretKey;
+        const settings = await saveInactivePaymentSettings(context.store, {
+          publishableKey: body.publishableKey,
+          secretKey,
+        });
+        return json(200, "admin", settings);
+      },
+    },
+  );
+
   if (deps.env.STRIPE_MODE === "simulator") {
     routes.push({
       method: "POST",
@@ -417,8 +640,16 @@ function applyCors(
   headers: Record<string, string>,
   allowed: ReadonlySet<string>,
 ): void {
-  if (cache === "catalog" || cache === "health") {
+  if (
+    cache === "catalog" ||
+    cache === "health" ||
+    cache === "media" ||
+    cache === "stored_media" ||
+    cache === "listing"
+  ) {
     headers["access-control-allow-origin"] = "*";
+    headers["access-control-allow-headers"] = "Authorization, Content-Type";
+    headers["access-control-allow-methods"] = "GET, POST, OPTIONS";
     return;
   }
   if (origin && allowed.has(origin)) {
@@ -426,7 +657,7 @@ function applyCors(
     headers.vary = "Origin";
   }
   headers["access-control-allow-headers"] = "Authorization, Content-Type";
-  headers["access-control-allow-methods"] = "GET, POST, OPTIONS";
+  headers["access-control-allow-methods"] = "GET, POST, PATCH, PUT, OPTIONS";
 }
 
 function send(
@@ -470,7 +701,7 @@ async function readBody(request: http.IncomingMessage): Promise<string> {
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > 1_000_000) {
+    if (total > 4_000_000) {
       throw new AppError("validation_error", "Request body is too large.");
     }
     chunks.push(buffer);

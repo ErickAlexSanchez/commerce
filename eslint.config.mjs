@@ -12,6 +12,7 @@ export default tseslint.config(
       "**/test-results/**",
       "**/blob-report/**",
       "**/*.cjs",
+      "**/next-env.d.ts",
     ],
   },
   ...tseslint.configs.recommended,
@@ -35,7 +36,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/**/*.tsx", "apps/**/*.ts"],
+    files: ["apps/**/*.tsx", "apps/**/*.ts", "packages/shell/**/*.tsx", "packages/shell/**/*.ts"],
     plugins: {
       "react-hooks": reactHooks,
     },

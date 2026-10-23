@@ -1,4 +1,4 @@
-import { CheckoutIsland } from "../../components/checkout-island";
+import { CheckoutHeading, CheckoutIsland } from "../../components/checkout-island";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,7 @@ export default async function CheckoutPage({
   }
   return (
     <main id="content">
-      <h1>Checkout</h1>
+      <CheckoutHeading />
       <CheckoutIsland sku={params.sku ?? null} apiBase={apiBase} />
     </main>
   );

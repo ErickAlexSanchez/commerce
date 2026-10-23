@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import Script from "next/script";
 import { Newsreader, Public_Sans } from "next/font/google";
+import { DemoFrame, DemoProvider, preferenceBootScript } from "@vesper-counsel/shell";
 import { QueryProvider } from "../components/query-provider";
 import "./globals.css";
 
@@ -14,23 +16,14 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${display.variable} ${sans.variable}`}>
       <body>
-        <a className="skip-link" href="#content">
-          Skip to content
-        </a>
-        <header className="site-header">
-          <a className="wordmark" href="/">
-            Counsel
-          </a>
-          <nav aria-label="Primary">
-            <a href="/">Services</a>
-          </nav>
-        </header>
-        <QueryProvider>{children}</QueryProvider>
-        <footer className="site-footer">
-          <p>Counsel is a fictional studio. Nothing here is legal advice. Test payment does not charge a card.</p>
-        </footer>
+        <Script id="demo-preferences" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: preferenceBootScript }} />
+        <DemoProvider>
+          <QueryProvider>
+            <DemoFrame brand="counsel">{children}</DemoFrame>
+          </QueryProvider>
+        </DemoProvider>
       </body>
     </html>
   );

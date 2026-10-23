@@ -45,29 +45,54 @@ const errorSchema = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
 });
 
+const listingSchema = z.object({
+  slug: z.string(),
+  sku: z.string(),
+  name: z.string(),
+  priceCents: z.number().int().nonnegative(),
+  imageUpdatedAt: z.string().nullable().optional(),
+});
+
+const listingsSchema = z.object({
+  brand: z.enum(["vesper", "counsel"]),
+  items: z.array(listingSchema),
+});
+
+export type Listing = z.infer<typeof listingSchema>;
+
+export class CommerceError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "CommerceError";
+    this.code = code;
+  }
+}
+
 export type CreatedSession = z.infer<typeof createdSessionSchema>;
 export type StoredSession = z.infer<typeof storedSessionSchema>;
 export type OpenSlot = z.infer<typeof slotSchema>;
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readFailure(response: Response): Promise<Error> {
   try {
     const body: unknown = await response.json();
     const parsed = errorSchema.safeParse(body);
     if (parsed.success) {
-      return parsed.data.error.message;
+      return new CommerceError(parsed.data.error.code, parsed.data.error.message);
     }
   } catch (error) {
     if (!(error instanceof SyntaxError)) {
       throw error;
     }
   }
-  return "The commerce service rejected the request.";
+  return new Error("The commerce service rejected the request.");
 }
 
 export async function fetchSlots(apiBase: string, serviceSlug: string): Promise<readonly OpenSlot[]> {
   const response = await fetch(`${apiBase}/scheduling/${serviceSlug}/slots`);
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await readFailure(response);
   }
   return slotsResponseSchema.parse(await response.json()).slots;
 }
@@ -93,7 +118,7 @@ export async function createSession(
     }),
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await readFailure(response);
   }
   return createdSessionSchema.parse(await response.json());
 }
@@ -103,7 +128,7 @@ export async function fetchSession(apiBase: string, sessionId: string, accessTok
     headers: { authorization: `Bearer ${accessToken}` },
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await readFailure(response);
   }
   return storedSessionSchema.parse(await response.json());
 }
@@ -118,19 +143,30 @@ export async function simulatePayment(apiBase: string, sessionId: string, access
     body: JSON.stringify({ sessionId }),
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await readFailure(response);
   }
   paymentSchema.parse(await response.json());
 }
 
-export function formatSlot(iso: string): string {
-  return `${new Intl.DateTimeFormat("en-GB", {
+export async function fetchListings(apiBase: string, brand: "vesper" | "counsel"): Promise<readonly Listing[]> {
+  const response = await fetch(`${apiBase}/listings/${brand}`, { cache: "no-store" });
+  if (!response.ok) {
+    throw await readFailure(response);
+  }
+  return listingsSchema.parse(await response.json()).items;
+}
+
+export function formatSlot(iso: string, locale: "en" | "es" = "en"): string {
+  return `${new Intl.DateTimeFormat(locale === "es" ? "es-MX" : "en-GB", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "UTC",
   }).format(new Date(iso))} UTC`;
 }
 
-export function formatUsd(cents: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+export function formatUsd(cents: number, locale: "en" | "es" = "en"): string {
+  return new Intl.NumberFormat(locale === "es" ? "es-MX" : "en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(cents / 100);
 }

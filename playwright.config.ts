@@ -25,6 +25,7 @@ export default defineConfig({
         STRIPE_MODE: "simulator",
         VESPER_ORIGIN: "http://127.0.0.1:3402",
         COUNSEL_ORIGIN: "http://127.0.0.1:3403",
+        ADMIN_ORIGIN: "http://127.0.0.1:3404",
         PUBLIC_BASE_URL: "http://127.0.0.1:3401",
       },
     },

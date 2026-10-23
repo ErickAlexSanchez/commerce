@@ -30,5 +30,5 @@ export function loadDotEnv(filePath: string): void {
 }
 
 export function defaultEnvPath(): string {
-  return path.resolve(__dirname, "../../../.env");
+  return path.resolve(__dirname, "../../../../.env");
 }

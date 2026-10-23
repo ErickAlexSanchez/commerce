@@ -2,6 +2,9 @@
 module.exports = {
   testEnvironment: "jsdom",
   testMatch: ["**/*.test.ts", "**/*.test.tsx"],
+  moduleNameMapper: {
+    "^@vesper-counsel/shell$": "<rootDir>/../../packages/shell/src/index.ts",
+  },
   setupFiles: ["<rootDir>/test/setup-env.cjs"],
   setupFilesAfterEnv: ["<rootDir>/test/setup.ts"],
   transform: {

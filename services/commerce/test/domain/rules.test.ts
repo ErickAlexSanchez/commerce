@@ -1,5 +1,7 @@
 import { pieceBySku, vesperPieces, counselServices } from "@vesper-counsel/catalog";
 import { quoteCheckout, assertPaidAmount } from "../../src/domain/checkout";
+import { decodeListingImage } from "../../src/domain/listing-image";
+import { toPublicPaymentSettings } from "../../src/domain/settings";
 import { cacheControlFor } from "../../src/domain/cache-policy";
 import { AppError } from "../../src/domain/errors";
 import { downloadStatus } from "../../src/domain/files";
@@ -125,8 +127,46 @@ describe("scheduling predicates", () => {
 describe("cache policy", () => {
   test("catalog is public and every dynamic route is private", () => {
     expect(cacheControlFor("catalog")).toBe("public, max-age=300, s-maxage=3600");
-    for (const route of ["checkout", "order", "download", "webhook", "scheduling", "health", "payment_simulator"] as const) {
+    expect(cacheControlFor("media")).toBe("public, max-age=300, s-maxage=3600");
+    for (const route of [
+      "checkout",
+      "order",
+      "download",
+      "webhook",
+      "scheduling",
+      "health",
+      "payment_simulator",
+      "listing",
+      "stored_media",
+      "admin",
+    ] as const) {
       expect(cacheControlFor(route)).toBe("private, no-store");
     }
+  });
+});
+
+describe("listing image", () => {
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  test("accepts a PNG and rejects a file that only claims to be one", () => {
+    const decoded = decodeListingImage("image/png", png);
+    expect(decoded.contentType).toBe("image/png");
+    expect(decoded.bytes.subarray(0, 4).toString("hex")).toBe("89504e47");
+    expect(() => decodeListingImage("image/png", Buffer.from("not a png").toString("base64"))).toThrow(
+      "Image must be a JPEG, PNG, or WebP.",
+    );
+    expect(() => decodeListingImage("image/gif", png)).toThrow("Image must be a JPEG, PNG, or WebP.");
+  });
+});
+
+describe("inactive payment settings", () => {
+  test("a saved secret is not returned in full and stays disconnected", () => {
+    const secret = "sk_demo_secret_value_not_live";
+    const shown = toPublicPaymentSettings({ publishableKey: "pk_demo_publishable", secretKey: secret });
+    expect(shown.connected).toBe(false);
+    expect(shown.paymentsProcessed).toBe(false);
+    expect(JSON.stringify(shown)).not.toContain(secret);
+    expect(shown.secretHint).toBe(`••••${secret.slice(-4)}`);
   });
 });

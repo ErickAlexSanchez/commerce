@@ -6,10 +6,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @vesper-counsel/commerce --filter @vesper-counsel/vesper --filter @vesper-counsel/counsel dev",
-    "typecheck": "pnpm --filter @vesper-counsel/catalog build && pnpm --filter @vesper-counsel/commerce --filter @vesper-counsel/vesper --filter @vesper-counsel/counsel typecheck",
+    "dev": "pnpm --parallel --filter @vesper-counsel/commerce --filter @vesper-counsel/vesper --filter @vesper-counsel/counsel --filter @vesper-counsel/admin dev",
+    "typecheck": "pnpm --filter @vesper-counsel/catalog build && pnpm --filter @vesper-counsel/shell --filter @vesper-counsel/commerce --filter @vesper-counsel/vesper --filter @vesper-counsel/counsel --filter @vesper-counsel/admin typecheck",
     "lint": "eslint .",
-    "test": "pnpm --filter @vesper-counsel/catalog build && pnpm --filter @vesper-counsel/commerce test && pnpm --filter @vesper-counsel/vesper test && pnpm --filter @vesper-counsel/counsel test",
+    "test": "pnpm --filter @vesper-counsel/catalog build && pnpm --filter @vesper-counsel/commerce test && pnpm --filter @vesper-counsel/vesper test && pnpm --filter @vesper-counsel/counsel test && pnpm --filter @vesper-counsel/admin test",
     "e2e": "playwright test",
     "db:migrate": "pnpm --filter @vesper-counsel/commerce migrate",
     "db:seed": "pnpm --filter @vesper-counsel/commerce seed"

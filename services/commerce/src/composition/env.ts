@@ -15,6 +15,7 @@ const envSchema = z.object({
   STRIPE_MODE: z.literal("simulator"),
   VESPER_ORIGIN: z.string().url(),
   COUNSEL_ORIGIN: z.string().url(),
+  ADMIN_ORIGIN: z.string().url().default("http://127.0.0.1:3404"),
   PUBLIC_BASE_URL: z.string().url(),
 });
 
@@ -31,7 +32,7 @@ export function loadEnv(source: NodeJS.ProcessEnv): Env {
 
 export function allowedOrigins(env: Env): Set<string> {
   const origins = new Set<string>();
-  for (const value of [env.VESPER_ORIGIN, env.COUNSEL_ORIGIN]) {
+  for (const value of [env.VESPER_ORIGIN, env.COUNSEL_ORIGIN, env.ADMIN_ORIGIN]) {
     origins.add(value);
     const url = new URL(value);
     if (url.hostname === "localhost") {

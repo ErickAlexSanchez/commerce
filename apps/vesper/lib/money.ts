@@ -1,3 +1,6 @@
-export function formatUsd(cents: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+export function formatUsd(cents: number, locale: "en" | "es" = "en"): string {
+  return new Intl.NumberFormat(locale === "es" ? "es-MX" : "en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(cents / 100);
 }

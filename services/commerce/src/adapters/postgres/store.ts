@@ -3,15 +3,22 @@ import pg from "pg";
 import { z } from "zod";
 import type { Brand } from "@vesper-counsel/catalog";
 import type {
+  AdminUserRecord,
   CommerceStore,
   CommerceTx,
   InsertOrder,
   InsertSession,
+  ListingImageWrite,
+  ListingRecord,
+  ListingWrite,
   LockedSession,
   OpenSlot,
+  OrderListItem,
+  OrderListLine,
   StoredLine,
   StoredOrder,
   StoredOrderLine,
+  StoredPaymentSettings,
   StoredSession,
 } from "../../ports/commerce-store";
 
@@ -82,6 +89,14 @@ function asBrand(value: string): Brand {
     throw new Error("Stored brand is invalid.");
   }
   return parsed.data;
+}
+
+function asTimestamp(value: Date | string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toISOString();
 }
 
 function asSessionStatus(value: string): "open" | "paid" {
@@ -181,6 +196,18 @@ class PgCommerceTx implements CommerceTx {
       [input.sessionId, input.heldUntil, input.slotId, input.expectedVersion, input.serviceSlug, input.now],
     );
     return result.rows[0]?.version ?? null;
+  }
+
+  async readListing(sku: string): Promise<{ name: string; priceCents: number } | null> {
+    const result = await this.client.query<{ name: string; price_cents: number }>(
+      "SELECT name, price_cents FROM catalog_listings WHERE sku = $1",
+      [sku],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+    return { name: row.name, priceCents: Number(row.price_cents) };
   }
 
   async readSlot(id: string): Promise<{ startsAt: string; endsAt: string } | null> {
@@ -400,5 +427,217 @@ export class PgCommerceStore implements CommerceStore {
       currency: "usd",
       lines: mapped,
     };
+  }
+
+  async listListings(brand: Brand): Promise<readonly ListingRecord[]> {
+    const result = await this.pool.query<{
+      sku: string;
+      brand: string;
+      name: string;
+      price_cents: number;
+      image_updated_at: Date | null;
+    }>(
+      `SELECT sku, brand, name, price_cents, image_updated_at
+       FROM catalog_listings
+       WHERE brand = $1
+       ORDER BY sku ASC`,
+      [brand],
+    );
+    return result.rows.map((row) => ({
+      sku: row.sku,
+      brand: asBrand(row.brand),
+      name: row.name,
+      priceCents: Number(row.price_cents),
+      imageUpdatedAt: asTimestamp(row.image_updated_at),
+    }));
+  }
+
+  async upsertListing(listing: ListingWrite): Promise<ListingRecord> {
+    const replaceImage = listing.image !== undefined;
+    const result = await this.pool.query<{
+      sku: string;
+      brand: string;
+      name: string;
+      price_cents: number;
+      image_updated_at: Date | null;
+    }>(
+      `INSERT INTO catalog_listings (
+         sku, brand, name, price_cents, image_bytes, image_content_type, image_updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7 THEN now() ELSE NULL END)
+       ON CONFLICT (sku) DO UPDATE
+         SET name = EXCLUDED.name,
+             price_cents = EXCLUDED.price_cents,
+             image_bytes = CASE WHEN $7 THEN EXCLUDED.image_bytes ELSE catalog_listings.image_bytes END,
+             image_content_type = CASE WHEN $7 THEN EXCLUDED.image_content_type ELSE catalog_listings.image_content_type END,
+             image_updated_at = CASE WHEN $7 THEN now() ELSE catalog_listings.image_updated_at END
+       RETURNING sku, brand, name, price_cents, image_updated_at`,
+      [
+        listing.sku,
+        listing.brand,
+        listing.name,
+        listing.priceCents,
+        listing.image?.bytes ?? null,
+        listing.image?.contentType ?? null,
+        replaceImage,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("Catalog listing was not saved.");
+    }
+    return {
+      sku: row.sku,
+      brand: asBrand(row.brand),
+      name: row.name,
+      priceCents: Number(row.price_cents),
+      imageUpdatedAt: asTimestamp(row.image_updated_at),
+    };
+  }
+
+  async readListingImage(sku: string): Promise<ListingImageWrite | null> {
+    const result = await this.pool.query<{ image_bytes: Buffer | string; image_content_type: string }>(
+      `SELECT image_bytes, image_content_type
+       FROM catalog_listings
+       WHERE sku = $1 AND image_bytes IS NOT NULL AND image_content_type IS NOT NULL`,
+      [sku],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+    if (
+      row.image_content_type !== "image/jpeg" &&
+      row.image_content_type !== "image/png" &&
+      row.image_content_type !== "image/webp"
+    ) {
+      return null;
+    }
+    const bytes = Buffer.isBuffer(row.image_bytes) ? row.image_bytes : Buffer.from(row.image_bytes);
+    return { contentType: row.image_content_type, bytes };
+  }
+
+  async findAdminByEmail(email: string): Promise<AdminUserRecord | null> {
+    const result = await this.pool.query<{ id: string; email: string; password_hash: string }>(
+      "SELECT id, email, password_hash FROM admin_users WHERE email = $1",
+      [email],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+    return { id: row.id, email: row.email, passwordHash: row.password_hash };
+  }
+
+  async createAdminSession(input: { tokenHash: string; adminUserId: string; expiresAt: Date }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO admin_sessions (token_hash, admin_user_id, expires_at)
+       VALUES ($1, $2, $3)`,
+      [input.tokenHash, input.adminUserId, input.expiresAt],
+    );
+  }
+
+  async readAdminSession(tokenHash: string, now: Date): Promise<{ id: string; email: string } | null> {
+    const result = await this.pool.query<{ id: string; email: string }>(
+      `SELECT u.id, u.email
+       FROM admin_sessions s
+       JOIN admin_users u ON u.id = s.admin_user_id
+       WHERE s.token_hash = $1 AND s.expires_at > $2`,
+      [tokenHash, now],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async listOrders(limit: number): Promise<readonly OrderListItem[]> {
+    const result = await this.pool.query<{
+      id: string;
+      brand: string;
+      email: string;
+      status: string;
+      total_cents: number;
+      currency: string;
+      created_at: Date;
+      lines: unknown;
+    }>(
+      `SELECT o.id, o.brand, o.email, o.status, o.total_cents, o.currency, o.created_at,
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'sku', l.sku,
+                    'name', l.name,
+                    'quantity', l.quantity,
+                    'unitAmountCents', l.unit_amount_cents
+                  )
+                  ORDER BY l.sku
+                ) FILTER (WHERE l.id IS NOT NULL),
+                '[]'::json
+              ) AS lines
+       FROM orders o
+       LEFT JOIN order_lines l ON l.order_id = o.id
+       GROUP BY o.id
+       ORDER BY o.created_at DESC
+       LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((row) => {
+      if (row.currency !== "usd" || row.status !== "paid") {
+        throw new Error("Stored order is invalid.");
+      }
+      const parsed = z.array(
+        z.object({
+          sku: z.string(),
+          name: z.string(),
+          quantity: z.number().int().positive(),
+          unitAmountCents: z.number().int().nonnegative(),
+        }),
+      ).safeParse(row.lines);
+      if (!parsed.success) {
+        throw new Error("Stored order lines are invalid.");
+      }
+      const lines: OrderListLine[] = parsed.data;
+      return {
+        id: row.id,
+        brand: asBrand(row.brand),
+        email: row.email,
+        status: "paid",
+        totalCents: Number(row.total_cents),
+        currency: "usd",
+        createdAt: row.created_at.toISOString(),
+        lines,
+      };
+    });
+  }
+
+  async readPaymentSettings(): Promise<StoredPaymentSettings> {
+    const result = await this.pool.query<{ publishable_key: string; secret_key: string; connected: boolean }>(
+      "SELECT publishable_key, secret_key, connected FROM inactive_payment_settings WHERE id = true",
+    );
+    const row = result.rows[0];
+    if (!row || row.connected !== false) {
+      return { publishableKey: "", secretKey: "" };
+    }
+    return { publishableKey: row.publishable_key, secretKey: row.secret_key };
+  }
+
+  async savePaymentSettings(input: {
+    publishableKey: string;
+    secretKey: string | null;
+  }): Promise<StoredPaymentSettings> {
+    const result = await this.pool.query<{ publishable_key: string; secret_key: string; connected: boolean }>(
+      `INSERT INTO inactive_payment_settings (id, publishable_key, secret_key, connected)
+       VALUES (true, $1, COALESCE($2, ''), false)
+       ON CONFLICT (id) DO UPDATE
+         SET publishable_key = EXCLUDED.publishable_key,
+             secret_key = CASE WHEN $2::text IS NULL THEN inactive_payment_settings.secret_key ELSE $2 END,
+             connected = false,
+             updated_at = now()
+       RETURNING publishable_key, secret_key, connected`,
+      [input.publishableKey, input.secretKey],
+    );
+    const row = result.rows[0];
+    if (!row || row.connected !== false) {
+      throw new Error("Inactive payment settings could not be saved.");
+    }
+    return { publishableKey: row.publishable_key, secretKey: row.secret_key };
   }
 }

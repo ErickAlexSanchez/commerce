@@ -1,19 +1,43 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
-import { counselServices, vesperPieces } from "@vesper-counsel/catalog";
+import { counselServices, demoAdminEmail, demoAdminPassword, vesperPieces } from "@vesper-counsel/catalog";
+import { hashPassword } from "../application/passwords";
 import { defaultEnvPath, loadDotEnv } from "../composition/load-dot-env";
 import { loadEnv } from "../composition/env";
+
+const demoAdminId = "00000000-0000-4000-8000-0000000000a1";
 
 export async function seed(pool: pg.Pool): Promise<void> {
   const client = await pool.connect();
   try {
+    const passwordHash = await hashPassword(demoAdminPassword);
     await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO admin_users (id, email, password_hash)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+      [demoAdminId, demoAdminEmail, passwordHash],
+    );
     for (const piece of vesperPieces) {
       await client.query(
         `INSERT INTO inventory_items (sku, quantity, version)
          VALUES ($1, 20, 0)
          ON CONFLICT (sku) DO UPDATE SET quantity = EXCLUDED.quantity, version = 0`,
         [piece.sku],
+      );
+      await client.query(
+        `INSERT INTO catalog_listings (sku, brand, name, price_cents)
+         VALUES ($1, 'vesper', $2, $3)
+         ON CONFLICT (sku) DO UPDATE SET name = EXCLUDED.name, price_cents = EXCLUDED.price_cents`,
+        [piece.sku, piece.name, piece.priceCents],
+      );
+    }
+    for (const service of counselServices) {
+      await client.query(
+        `INSERT INTO catalog_listings (sku, brand, name, price_cents)
+         VALUES ($1, 'counsel', $2, $3)
+         ON CONFLICT (sku) DO UPDATE SET name = EXCLUDED.name, price_cents = EXCLUDED.price_cents`,
+        [service.sku, service.name, service.priceCents],
       );
     }
     await client.query("DELETE FROM availability_slots WHERE status IN ('open', 'held')");

@@ -22,6 +22,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      # Jest replaces DATABASE_URL with commerce_test. This URL is the database Playwright uses.
       DATABASE_URL: postgres://commerce:commerce@127.0.0.1:5435/commerce
       PORT: 3401
       WEBHOOK_SECRET: whsec_local_simulator_only
@@ -30,6 +31,7 @@ jobs:
       STRIPE_MODE: simulator
       VESPER_ORIGIN: http://127.0.0.1:3402
       COUNSEL_ORIGIN: http://127.0.0.1:3403
+      ADMIN_ORIGIN: http://127.0.0.1:3404
       PUBLIC_BASE_URL: http://127.0.0.1:3401
       CI: true
     steps:

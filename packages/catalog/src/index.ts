@@ -127,3 +127,19 @@ export function serviceBySlug(slug: string): CounselService | undefined {
 export function serviceBySku(sku: string): CounselService | undefined {
   return counselServices.find((service) => service.sku === sku);
 }
+
+export {
+  catalogImagePath,
+  catalogImageSrc,
+  demoAdminEmail,
+  demoAdminPassword,
+  demoAdminUrl,
+  demoCounselUrl,
+  demoShopperEmail,
+  demoVesperUrl,
+  imageAltFor,
+  localizedDetails,
+  localizedMaterials,
+  localizedName,
+  localizedSummary,
+} from "./copy";

@@ -5,7 +5,7 @@ import { decideInventoryDecrement } from "../domain/inventory";
 import { AppError } from "../domain/errors";
 import { holdWindowMs } from "../domain/scheduling";
 import type { Clock } from "../ports/clock";
-import type { CommerceStore, StoredLine, StoredSession } from "../ports/commerce-store";
+import type { CommerceStore, CommerceTx, StoredLine, StoredSession } from "../ports/commerce-store";
 import { hashAccessToken, newAccessToken, assertSessionAccess } from "./access-tokens";
 
 export type CreateCheckoutInput = {
@@ -48,6 +48,31 @@ function publicLines(
   }));
 }
 
+async function pricedLine(
+  tx: CommerceTx,
+  quotedLine: {
+    sku: string;
+    name: string;
+    quantity: number;
+    unitAmountCents: number;
+    certificateFileKey: string | null;
+  },
+  inventoryVersion: number | null,
+): Promise<{ line: StoredLine; totalCents: number }> {
+  const listing = await tx.readListing(quotedLine.sku);
+  const unitAmountCents = listing?.priceCents ?? quotedLine.unitAmountCents;
+  const name = listing?.name ?? quotedLine.name;
+  const line: StoredLine = {
+    sku: quotedLine.sku,
+    name,
+    quantity: quotedLine.quantity,
+    unitAmountCents,
+    certificateFileKey: quotedLine.certificateFileKey,
+    inventoryVersion,
+  };
+  return { line, totalCents: unitAmountCents * quotedLine.quantity };
+}
+
 export async function createCheckoutSession(
   store: CommerceStore,
   clock: Clock,
@@ -78,22 +103,19 @@ export async function createCheckoutSession(
       if (decision !== "allow") {
         throw new AppError("inventory_conflict", "That piece does not have enough stock.");
       }
-      const stored: StoredLine = {
-        ...quotedLine,
-        inventoryVersion: inventory.version,
-      };
+      const priced = await pricedLine(tx, quotedLine, inventory.version);
       await tx.insertSession({
         id: sessionId,
         accessTokenHash,
         brand: "vesper",
         email: input.email,
-        totalCents: quoted.totalCents,
+        totalCents: priced.totalCents,
         currency: "usd",
-        lines: [stored],
+        lines: [priced.line],
         slotId: null,
         slotVersion: null,
       });
-      return { slot: null };
+      return { slot: null, totalCents: priced.totalCents, lines: [priced.line] as const };
     }
 
     if (input.slotId === undefined || input.slotVersion === undefined) {
@@ -115,15 +137,15 @@ export async function createCheckoutSession(
     if (nextVersion === null) {
       throw new AppError("slot_unavailable", "That time is no longer open.");
     }
-    const stored: StoredLine = { ...quotedLine, inventoryVersion: null };
+    const priced = await pricedLine(tx, quotedLine, null);
     await tx.insertSession({
       id: sessionId,
       accessTokenHash,
       brand: "counsel",
       email: input.email,
-      totalCents: quoted.totalCents,
+      totalCents: priced.totalCents,
       currency: "usd",
-      lines: [stored],
+      lines: [priced.line],
       slotId: input.slotId,
       slotVersion: nextVersion,
     });
@@ -133,6 +155,8 @@ export async function createCheckoutSession(
     }
     return {
       slot: { id: input.slotId, startsAt: slot.startsAt, endsAt: slot.endsAt, version: nextVersion },
+      totalCents: priced.totalCents,
+      lines: [priced.line] as const,
     };
   });
 
@@ -141,9 +165,9 @@ export async function createCheckoutSession(
     accessToken,
     brand: input.brand,
     email: input.email,
-    totalCents: quoted.totalCents,
+    totalCents: created.totalCents,
     currency: "usd",
-    lines: publicLines(quoted.lines),
+    lines: publicLines(created.lines),
     slot: created.slot,
   };
 }

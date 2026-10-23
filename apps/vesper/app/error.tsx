@@ -1,13 +1,16 @@
 "use client";
 
+import { useLocale } from "@vesper-counsel/shell";
+
 export default function RouteError({ reset }: { reset: () => void }) {
+  const { t } = useLocale();
   return (
     <main id="content">
       <div role="alert">
-        <h1>Something went wrong</h1>
-        <p>This page could not be loaded.</p>
+        <h1>{t.somethingWrong}</h1>
+        <p>{t.couldNotLoad}</p>
         <button type="button" onClick={() => reset()}>
-          Try again
+          {t.tryAgain}
         </button>
       </div>
     </main>

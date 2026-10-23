@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { pieceBySlug, vesperPieces } from "@vesper-counsel/catalog";
-import { formatUsd } from "../../../lib/money";
+import { PieceView } from "../../../components/piece-view";
 
 export const dynamicParams = false;
 
@@ -25,18 +25,9 @@ export default async function PiecePage({ params }: { params: Promise<{ slug: st
   if (!piece) {
     notFound();
   }
-  return (
-    <main id="content" className="piece">
-      <p className="eyebrow">{piece.materials}</p>
-      <h1>{piece.name}</h1>
-      <p className="price">{formatUsd(piece.priceCents)}</p>
-      <p>{piece.summary}</p>
-      <p className="summary">{piece.details}</p>
-      <p>
-        <a className="button" href={`/checkout?sku=${piece.slug}`}>
-          Checkout
-        </a>
-      </p>
-    </main>
-  );
+  const apiBase = process.env.NEXT_PUBLIC_COMMERCE_API_URL;
+  if (!apiBase) {
+    throw new Error("NEXT_PUBLIC_COMMERCE_API_URL is required.");
+  }
+  return <PieceView piece={piece} apiBase={apiBase} />;
 }

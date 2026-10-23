@@ -18,7 +18,7 @@ if (!parsed.success) {
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  transpilePackages: ["@vesper-counsel/catalog"],
+  transpilePackages: ["@vesper-counsel/catalog", "@vesper-counsel/shell"],
   async headers() {
     return [
       {

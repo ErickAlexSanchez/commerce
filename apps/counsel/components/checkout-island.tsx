@@ -2,8 +2,37 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { serviceBySlug, type CounselService } from "@vesper-counsel/catalog";
-import { createSession, fetchSession, formatSlot, formatUsd, simulatePayment, type CreatedSession } from "../lib/api";
+import { localizedName, serviceBySlug, type CounselService } from "@vesper-counsel/catalog";
+import { DemoPaymentNotice, fill, useLocale } from "@vesper-counsel/shell";
+import {
+  CommerceError,
+  createSession,
+  fetchListings,
+  fetchSession,
+  formatSlot,
+  formatUsd,
+  simulatePayment,
+  type CreatedSession,
+} from "../lib/api";
+
+const spanishApi: Record<string, string> = {
+  slot_unavailable: "Ese horario ya no está disponible.",
+  validation_error: "La solicitud no es válida.",
+  not_found: "No se encontró.",
+  unauthorized: "Hace falta autenticación.",
+};
+
+function errorText(error: unknown, locale: "en" | "es"): string {
+  if (locale === "es" && error instanceof CommerceError) {
+    return spanishApi[error.code] ?? error.message;
+  }
+  return error instanceof Error ? error.message : "";
+}
+
+export function CheckoutHeading() {
+  const { t } = useLocale();
+  return <h1>{t.checkout}</h1>;
+}
 
 export function CheckoutIsland({
   serviceSlug,
@@ -16,11 +45,31 @@ export function CheckoutIsland({
   slotVersion: number | null;
   apiBase: string;
 }) {
+  return (
+    <>
+      <DemoPaymentNotice />
+      <CheckoutBody serviceSlug={serviceSlug} slotId={slotId} slotVersion={slotVersion} apiBase={apiBase} />
+    </>
+  );
+}
+
+function CheckoutBody({
+  serviceSlug,
+  slotId,
+  slotVersion,
+  apiBase,
+}: {
+  serviceSlug: string | null;
+  slotId: string | null;
+  slotVersion: number | null;
+  apiBase: string;
+}) {
+  const { t } = useLocale();
   if (!serviceSlug || !slotId || slotVersion === null) {
     return (
       <div className="notice">
-        <p>Choose a time from a service.</p>
-        <a href="/">Back to services</a>
+        <p>{t.chooseTime}</p>
+        <a href="/">{t.backToServices}</a>
       </div>
     );
   }
@@ -28,8 +77,8 @@ export function CheckoutIsland({
   if (!service) {
     return (
       <div role="alert">
-        <p>That service is not in the catalog.</p>
-        <a href="/">Back to services</a>
+        <p>{t.unknownService}</p>
+        <a href="/">{t.backToServices}</a>
       </div>
     );
   }
@@ -47,10 +96,16 @@ function CheckoutForm({
   slotVersion: number;
   apiBase: string;
 }) {
+  const { locale, t } = useLocale();
   const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const listings = useQuery({
+    queryKey: ["listings", "counsel", apiBase],
+    queryFn: () => fetchListings(apiBase, "counsel"),
+  });
+  const live = listings.data?.find((item) => item.sku === service.sku);
 
   const sessionQuery = useQuery({
     queryKey: ["checkout-session", sessionId],
@@ -94,22 +149,24 @@ function CheckoutForm({
   const order = sessionQuery.data?.order ?? null;
   const waiting = payMutation.isPending || (payMutation.isSuccess && order === null);
   const heldSlot = sessionQuery.data?.slot;
+  const name = localizedName(service.slug, live?.name ?? service.name, service.name, locale);
+  const price = live?.priceCents ?? service.priceCents;
   const statusText = order
-    ? `Booking confirmed. Reference ${order.id}.`
+    ? fill(t.bookingConfirmed, { id: order.id })
     : waiting
-      ? "Waiting for payment confirmation"
+      ? t.waitingPayment
       : createMutation.isPending
-        ? "Creating checkout"
+        ? t.creatingCheckout
         : null;
 
   return (
     <section className="checkout" aria-labelledby="service-title">
-      <p className="eyebrow">Test payment</p>
-      <h2 id="service-title">{service.name}</h2>
+      <p className="eyebrow">{t.testPayment}</p>
+      <h2 id="service-title">{name}</h2>
       <p>
-        {service.durationMinutes} minutes · {formatUsd(service.priceCents)}
+        {fill(t.minutes, { count: String(service.durationMinutes) })} · {formatUsd(price, locale)}
       </p>
-      {heldSlot ? <p>Held time: {formatSlot(heldSlot.startsAt)}</p> : null}
+      {heldSlot ? <p>{fill(t.heldTime, { time: formatSlot(heldSlot.startsAt, locale) })}</p> : null}
       {statusText ? <p role="status">{statusText}</p> : null}
       {sessionId === null ? (
         <form
@@ -118,7 +175,7 @@ function CheckoutForm({
             createMutation.mutate();
           }}
         >
-          <label htmlFor="email">Email</label>
+          <label htmlFor="email">{t.email}</label>
           <input
             id="email"
             name="email"
@@ -130,11 +187,11 @@ function CheckoutForm({
           />
           {createMutation.isError ? (
             <div role="alert">
-              <p>{createMutation.error.message}</p>
+              <p>{errorText(createMutation.error, locale)}</p>
             </div>
           ) : null}
           <button type="submit" disabled={createMutation.isPending}>
-            Continue
+            {t.continue}
           </button>
         </form>
       ) : null}
@@ -142,12 +199,12 @@ function CheckoutForm({
         <div>
           {payMutation.isError ? (
             <div role="alert">
-              <p>{payMutation.error.message}</p>
+              <p>{errorText(payMutation.error, locale)}</p>
             </div>
           ) : null}
           {sessionQuery.isError ? (
             <div role="alert">
-              <p>{sessionQuery.error.message}</p>
+              <p>{errorText(sessionQuery.error, locale)}</p>
             </div>
           ) : null}
           <button
@@ -155,7 +212,7 @@ function CheckoutForm({
             disabled={waiting}
             onClick={() => payMutation.mutate({ sessionId, accessToken })}
           >
-            Complete test payment
+            {t.completeTestPayment}
           </button>
         </div>
       ) : null}

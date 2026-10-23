@@ -1,0 +1,1 @@
+export const preferenceBootScript = `(function(){try{var t=localStorage.getItem("theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.setAttribute("data-theme",t);var l=localStorage.getItem("locale");if(l==="es"||l==="en"){document.documentElement.lang=l;}}catch(e){}})();`;

@@ -53,6 +53,58 @@ export type OpenSlot = {
   version: number;
 };
 
+export type ListingImageType = "image/jpeg" | "image/png" | "image/webp";
+
+export type ListingImageWrite = {
+  contentType: ListingImageType;
+  bytes: Buffer;
+};
+
+export type ListingRecord = {
+  sku: string;
+  brand: Brand;
+  name: string;
+  priceCents: number;
+  imageUpdatedAt: string | null;
+};
+
+export type ListingWrite = {
+  sku: string;
+  brand: Brand;
+  name: string;
+  priceCents: number;
+  image?: ListingImageWrite;
+};
+
+export type AdminUserRecord = {
+  id: string;
+  email: string;
+  passwordHash: string;
+};
+
+export type OrderListLine = {
+  sku: string;
+  name: string;
+  quantity: number;
+  unitAmountCents: number;
+};
+
+export type OrderListItem = {
+  id: string;
+  brand: Brand;
+  email: string;
+  status: "paid";
+  totalCents: number;
+  currency: "usd";
+  createdAt: string;
+  lines: readonly OrderListLine[];
+};
+
+export type StoredPaymentSettings = {
+  publishableKey: string;
+  secretKey: string;
+};
+
 export type InsertSession = {
   id: string;
   accessTokenHash: string;
@@ -93,6 +145,7 @@ export interface CommerceTx {
     now: Date;
   }): Promise<number | null>;
   readSlot(id: string): Promise<{ startsAt: string; endsAt: string } | null>;
+  readListing(sku: string): Promise<{ name: string; priceCents: number } | null>;
   insertOrderIfAbsent(order: InsertOrder): Promise<{ orderId: string; created: boolean }>;
   insertOrderLines(orderId: string, lines: readonly StoredLine[]): Promise<void>;
   decrementInventory(sku: string, expectedVersion: number, quantity: number): Promise<boolean>;
@@ -112,4 +165,13 @@ export interface CommerceStore {
   listOpenSlots(serviceSlug: string, now: Date): Promise<readonly OpenSlot[]>;
   readSession(id: string): Promise<StoredSession | null>;
   readOrder(id: string): Promise<StoredOrder | null>;
+  listListings(brand: Brand): Promise<readonly ListingRecord[]>;
+  upsertListing(listing: ListingWrite): Promise<ListingRecord>;
+  readListingImage(sku: string): Promise<ListingImageWrite | null>;
+  findAdminByEmail(email: string): Promise<AdminUserRecord | null>;
+  createAdminSession(input: { tokenHash: string; adminUserId: string; expiresAt: Date }): Promise<void>;
+  readAdminSession(tokenHash: string, now: Date): Promise<{ id: string; email: string } | null>;
+  listOrders(limit: number): Promise<readonly OrderListItem[]>;
+  readPaymentSettings(): Promise<StoredPaymentSettings>;
+  savePaymentSettings(input: { publishableKey: string; secretKey: string | null }): Promise<StoredPaymentSettings>;
 }

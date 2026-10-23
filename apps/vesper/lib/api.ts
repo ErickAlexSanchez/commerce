@@ -51,6 +51,31 @@ const errorSchema = z.object({
   }),
 });
 
+const listingSchema = z.object({
+  slug: z.string(),
+  sku: z.string(),
+  name: z.string(),
+  priceCents: z.number().int().nonnegative(),
+  imageUpdatedAt: z.string().nullable().optional(),
+});
+
+const listingsSchema = z.object({
+  brand: z.enum(["vesper", "counsel"]),
+  items: z.array(listingSchema),
+});
+
+export type Listing = z.infer<typeof listingSchema>;
+
+export class CommerceError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "CommerceError";
+    this.code = code;
+  }
+}
+
 export type CreatedSession = z.infer<typeof createdSessionSchema>;
 export type StoredSession = z.infer<typeof storedSessionSchema>;
 
@@ -62,19 +87,19 @@ export type CheckoutRequest = {
   slotVersion?: number;
 };
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readFailure(response: Response): Promise<Error> {
   try {
     const body: unknown = await response.json();
     const parsed = errorSchema.safeParse(body);
     if (parsed.success) {
-      return parsed.data.error.message;
+      return new CommerceError(parsed.data.error.code, parsed.data.error.message);
     }
   } catch (error) {
     if (!(error instanceof SyntaxError)) {
       throw error;
     }
   }
-  return "The commerce service rejected the request.";
+  return new Error("The commerce service rejected the request.");
 }
 
 async function postJson(url: string, body: unknown, accessToken?: string): Promise<Response> {
@@ -88,7 +113,7 @@ async function postJson(url: string, body: unknown, accessToken?: string): Promi
 export async function createSession(apiBase: string, body: CheckoutRequest): Promise<CreatedSession> {
   const response = await postJson(`${apiBase}/checkout/sessions`, body);
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await readFailure(response);
   }
   return createdSessionSchema.parse(await response.json());
 }
@@ -98,7 +123,7 @@ export async function fetchSession(apiBase: string, sessionId: string, accessTok
     headers: { authorization: `Bearer ${accessToken}` },
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await readFailure(response);
   }
   return storedSessionSchema.parse(await response.json());
 }
@@ -110,10 +135,18 @@ export async function simulatePayment(
 ): Promise<{ orderId: string; duplicate: boolean }> {
   const response = await postJson(`${apiBase}/dev/payments/simulate`, { sessionId }, accessToken);
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await readFailure(response);
   }
   const parsed = paymentSchema.parse(await response.json());
   return { orderId: parsed.orderId, duplicate: parsed.duplicate };
+}
+
+export async function fetchListings(apiBase: string, brand: "vesper" | "counsel"): Promise<readonly Listing[]> {
+  const response = await fetch(`${apiBase}/listings/${brand}`, { cache: "no-store" });
+  if (!response.ok) {
+    throw await readFailure(response);
+  }
+  return listingsSchema.parse(await response.json()).items;
 }
 
 export async function issueCertificate(
@@ -126,7 +159,7 @@ export async function issueCertificate(
     headers: { authorization: `Bearer ${accessToken}` },
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await readFailure(response);
   }
   return downloadSchema.parse(await response.json());
 }
