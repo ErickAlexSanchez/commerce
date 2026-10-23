@@ -17,7 +17,7 @@ The public demo is the URL Vercel assigns when this repository is imported and d
 
 Checkout stays the labeled demo simulator. Stripe is not activated. No payment secret is stored in this repository.
 
-Postgres stays on this machine. Docker Compose publishes it on port 5435. The commerce service reads `DATABASE_URL` and the other names in `.env.example` from the Vercel project environment. Those values are not committed. Without `DATABASE_URL`, the storefronts still build from `packages/catalog`, and checkout cannot write an order.
+The build does not need `COMMERCE_API_URL`. On Vercel, Vesper, Counsel, and the admin call the commerce service at `/commerce` on the same host. Postgres stays on this machine. Docker Compose publishes it on port 5435. Without `DATABASE_URL`, listings and photographs come from `packages/catalog`, and checkout shows the labeled demo simulator without writing an order.
 
 ## Decision
 
@@ -70,7 +70,7 @@ e2e/
 .github/workflows/
 ```
 
-Domain and application code do not import React, Next.js, the Postgres driver, or adapters. The HTTP process reads environment variables with Zod and refuses to start when they are incomplete. `src/composition/create-app.ts` is the place that wires the HTTP adapters. Migrate and seed open their own database connections.
+Domain and application code do not import React, Next.js, the Postgres driver, or adapters. The long-running HTTP process reads environment variables with Zod and refuses to start when they are incomplete. The hosted handler, when `DATABASE_URL` is absent, serves listings and photographs from `packages/catalog` and does not write an order. `src/composition/create-app.ts` is the place that wires the HTTP adapters. Migrate and seed open their own database connections.
 
 ## Local
 
