@@ -24,6 +24,8 @@ The admin price field is dollars. `catalog_listings.price_cents` stores cents. S
 
 HTTP, Postgres, the webhook signer, and the download signer are adapters. `src/composition/create-app.ts` wires them for the HTTP process.
 
+On the hosted deployment, the storefronts and the admin call the commerce service at `/commerce` on the same host when `COMMERCE_API_URL` is unset. That build does not need a local API URL. Without `DATABASE_URL`, the hosted handler reads the catalog from `packages/catalog` and does not write an order. Checkout still shows the labeled demo simulator, and `STRIPE_MODE` stays `simulator`.
+
 ## Consequences
 
 - Duplicate delivery of one event cannot create a second order. The integration test fails if the unique index is removed.

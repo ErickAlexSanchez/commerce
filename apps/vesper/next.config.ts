@@ -3,16 +3,37 @@ import { z } from "zod";
 
 const absoluteUrl = z.string().url();
 
+function sameOriginApiPath(value: string): string | undefined {
+  if (!value.startsWith("/") || value.startsWith("//")) {
+    return undefined;
+  }
+  if (value.includes("\\") || value.includes("?") || value.includes("#") || /\s/.test(value)) {
+    return undefined;
+  }
+  if (value.split("/").includes("..")) {
+    return undefined;
+  }
+  const path = value.length > 1 && value.endsWith("/") ? value.slice(0, -1) : value;
+  if (!/^\/[A-Za-z0-9][A-Za-z0-9._~/-]*$/.test(path)) {
+    return undefined;
+  }
+  return path;
+}
+
 function readAbsoluteUrl(name: "COMMERCE_API_URL" | "NEXT_PUBLIC_COMMERCE_API_URL"): string | undefined {
   const value = process.env[name];
   if (value === undefined || value.length === 0) {
     return undefined;
   }
   const parsed = absoluteUrl.safeParse(value);
-  if (!parsed.success) {
-    throw new Error(`Invalid environment: ${name}`);
+  if (parsed.success) {
+    return parsed.data;
   }
-  return parsed.data;
+  const path = sameOriginApiPath(value);
+  if (path !== undefined) {
+    return path;
+  }
+  throw new Error(`Invalid environment: ${name}`);
 }
 
 const onVercel = process.env.VERCEL === "1";
